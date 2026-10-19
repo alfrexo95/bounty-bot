@@ -117,6 +117,14 @@ def resolver_issue(issue):
     branch_res = subprocess.run(["git", "branch", "-r"], capture_output=True, text=True)
     base_branch = "main" if "origin/main" in branch_res.stdout else "master"
 
+    # --- SINCRONIZAR CON EL REPOSITORIO ORIGINAL (UPSTREAM) ---
+    print("  🔄 Sincronizando tu Fork con el repositorio original para tener los últimos cambios...")
+    subprocess.run(["git", "remote", "add", "upstream", f"https://github.com/{owner}/{repo}.git"], capture_output=True)
+    subprocess.run(["git", "fetch", "upstream"], capture_output=True)
+    # Hacemos un reset duro a la rama principal del original para evitar conflictos
+    subprocess.run(["git", "reset", "--hard", f"upstream/{base_branch}"], capture_output=True)
+    print("  ✅ Fork sincronizado con la última versión del código.")
+
     # 4. Buscar y reemplazar usando grep (más fiable)
     cambio_realizado = False
     print("  🔄 Buscando 'Pin.set' en todo el repositorio...")
