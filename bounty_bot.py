@@ -21,7 +21,7 @@ PAYMENT_ADDRESSES = """
 PAYMENT_KEYWORDS = ["payment", "pay", "address", "wallet", "usdc", "lightning", "reward", "bounty", "stripe", "fund"]
 
 # Palabras clave que sabemos resolver
-KEYWORDS = ["typo", "copyright", "update year", "readme", "fix link", "broken link"]
+KEYWORDS = ["typo", "copyright", "update year", "readme", "fix link", "broken link", "automation", "script", "automate", "cron", "github action", "workflow", "bash"]
 
 def buscar_issues():
     issues = []
