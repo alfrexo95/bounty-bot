@@ -117,38 +117,38 @@ def resolver_issue(issue):
     branch_res = subprocess.run(["git", "branch", "-r"], capture_output=True, text=True)
     base_branch = "main" if "origin/main" in branch_res.stdout else "master"
 
-    # 4. Buscar y reemplazar de forma inteligente (Regex)
+    # 4. Buscar y reemplazar usando grep (más fiable)
     cambio_realizado = False
-    print("  🔄 Buscando variaciones de 'Pin.set' y '.set(' en la carpeta docs/...")
+    print("  🔄 Buscando 'Pin.set' en todo el repositorio...")
     
-    # Patrón de búsqueda: busca "Pin.set" (sin importar mayúsculas) o ".set("
-    patron = re.compile(r'(?i)Pin\.set|\.set\(')
+    # Usamos grep para encontrar archivos que contengan 'Pin.set' (ignorando mayúsculas)
+    grep_result = subprocess.run(["grep", "-r", "-l", "-i", "Pin.set", "."], capture_output=True, text=True)
     
-    for root, dirs, files in os.walk("."):
-        if ".git" in root:
-            continue
-        for file in files:
-            if file.endswith((".md", ".py", ".txt", ".json", ".verse")):
-                path = os.path.join(root, file)
-                try:
-                    with open(path, "r", encoding="utf-8") as f:
-                        content = f.read()
-                    
-                    # Si el patrón coincide, reemplazamos
-                    if patron.search(content):
-                        # Reemplaza Pin.set por Pin.write y .set( por .write(
-                        new_content = re.sub(r'(?i)Pin\.set', 'Pin.write', content)
-                        new_content = new_content.replace('.set(', '.write(')
-                        
-                        with open(path, "w", encoding="utf-8") as f:
-                            f.write(new_content)
-                        print(f"    ✅ Reemplazado en {path}")
-                        cambio_realizado = True
-                except Exception as e:
-                    print(f"    ⚠️ No se pudo procesar {path}: {e}")
+    if not grep_result.stdout.strip():
+        print("  ❌ No se encontró 'Pin.set' en ningún archivo. Verifica que la carpeta docs esté en la rama clonada.")
+        sys.exit(1)
+        
+    files_to_fix = grep_result.stdout.strip().split("\n")
+    print(f"  📄 Archivos encontrados: {files_to_fix}")
+    
+    for path in files_to_fix:
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                content = f.read()
+            
+            # Reemplazamos Pin.set por Pin.write de forma inteligente
+            new_content = re.sub(r'(?i)Pin\.set', 'Pin.write', content)
+            
+            if new_content != content:
+                with open(path, "w", encoding="utf-8") as f:
+                    f.write(new_content)
+                print(f"    ✅ Reemplazado en {path}")
+                cambio_realizado = True
+        except Exception as e:
+            print(f"    ⚠️ No se pudo procesar {path}: {e}")
 
     if not cambio_realizado:
-        print("  ❌ No se encontró ninguna coincidencia de Pin.set o .set( en los archivos. Abortando.")
+        print("  ❌ Se encontraron archivos, pero no se pudo aplicar el reemplazo. Abortando.")
         sys.exit(1)
 
     # 5. Hacer commit y push al Fork
