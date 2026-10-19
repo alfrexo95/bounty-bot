@@ -117,9 +117,13 @@ def resolver_issue(issue):
     branch_res = subprocess.run(["git", "branch", "-r"], capture_output=True, text=True)
     base_branch = "main" if "origin/main" in branch_res.stdout else "master"
 
-    # 4. Buscar y reemplazar 'Pin.set' por 'Pin.write' en todos los archivos relevantes
+    # 4. Buscar y reemplazar de forma inteligente (Regex)
     cambio_realizado = False
-    print("  🔄 Buscando 'Pin.set' para renombrar a 'Pin.write'...")
+    print("  🔄 Buscando variaciones de 'Pin.set' y '.set(' en la carpeta docs/...")
+    
+    # Patrón de búsqueda: busca "Pin.set" (sin importar mayúsculas) o ".set("
+    patron = re.compile(r'(?i)Pin\.set|\.set\(')
+    
     for root, dirs, files in os.walk("."):
         if ".git" in root:
             continue
@@ -129,8 +133,13 @@ def resolver_issue(issue):
                 try:
                     with open(path, "r", encoding="utf-8") as f:
                         content = f.read()
-                    if "Pin.set" in content:
-                        new_content = content.replace("Pin.set", "Pin.write")
+                    
+                    # Si el patrón coincide, reemplazamos
+                    if patron.search(content):
+                        # Reemplaza Pin.set por Pin.write y .set( por .write(
+                        new_content = re.sub(r'(?i)Pin\.set', 'Pin.write', content)
+                        new_content = new_content.replace('.set(', '.write(')
+                        
                         with open(path, "w", encoding="utf-8") as f:
                             f.write(new_content)
                         print(f"    ✅ Reemplazado en {path}")
@@ -139,7 +148,7 @@ def resolver_issue(issue):
                     print(f"    ⚠️ No se pudo procesar {path}: {e}")
 
     if not cambio_realizado:
-        print("  ❌ No se encontró 'Pin.set' en los archivos. Abortando.")
+        print("  ❌ No se encontró ninguna coincidencia de Pin.set o .set( en los archivos. Abortando.")
         sys.exit(1)
 
     # 5. Hacer commit y push al Fork
