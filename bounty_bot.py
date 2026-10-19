@@ -75,19 +75,33 @@ def resolver_issue(issue):
     crear_notificacion_issue(title, issue_url, monto)
 
     # 1. Hacer un FORK del repositorio
-    print(f"  🍴 Haciendo Fork de {owner}/{repo} a tu cuenta...")
+    print(f"  🍴 Solicitando Fork de {owner}/{repo} a tu cuenta...")
     fork_url = f"https://api.github.com/repos/{owner}/{repo}/forks"
-    requests.post(fork_url, headers=HEADERS)
-    time.sleep(5) # Esperar a que GitHub procese el fork
+    fork_res = requests.post(fork_url, headers=HEADERS)
+    if fork_res.status_code not in [200, 202]:
+        print(f"  ❌ Error al solicitar Fork: {fork_res.text}")
+        return False
 
-    # 2. Clonar TU Fork (no el original)
+    # 2. Clonar TU Fork con bucle de reintentos
     if os.path.exists("repo_temp"): subprocess.run(["rm", "-rf", "repo_temp"])
     clone_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{MY_USER}/{repo}.git"
     
-    try:
-        subprocess.run(["git", "clone", clone_url, "repo_temp"], check=True, capture_output=True)
-    except subprocess.CalledProcessError:
-        print("  ❌ Error al clonar tu Fork.")
+    clone_success = False
+    max_retries = 5
+    
+    for attempt in range(max_retries):
+        print(f"  ⏳ Intentando clonar tu Fork (Intento {attempt + 1}/{max_retries})...")
+        try:
+            subprocess.run(["git", "clone", clone_url, "repo_temp"], check=True, capture_output=True)
+            clone_success = True
+            print("  ✅ Fork clonado correctamente.")
+            break
+        except subprocess.CalledProcessError as e:
+            print(f"     Fallo al clonar. Esperando 10 segundos a que GitHub termine de crear el Fork...")
+            time.sleep(10)
+            
+    if not clone_success:
+        print("  ❌ No se pudo clonar el Fork después de varios intentos. GitHub puede estar lento.")
         return False
         
     os.chdir("repo_temp")
