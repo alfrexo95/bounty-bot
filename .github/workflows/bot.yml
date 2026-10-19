@@ -7,7 +7,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  issues: write  # <--- PERMISO NUEVO PARA CREAR NOTIFICACIONES
+  issues: write
 
 jobs:
   run-bot:
@@ -18,8 +18,9 @@ jobs:
         with:
           python-version: '3.10'
       - name: Install dependencies
-        run: pip install requests
+        run: pip install requests dbgagent
       - name: Run Bot
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}  # <--- NUEVA VARIABLE
         run: python bounty_bot.py

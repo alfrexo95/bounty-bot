@@ -5,6 +5,7 @@ import requests
 from datetime import datetime
 
 GITHUB_TOKEN = os.environ.get("PAT_TOKEN")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY")
 HEADERS = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
 YEAR = str(datetime.now().year)
 MY_REPO = "alfrexo95/bounty-bot"
@@ -18,6 +19,8 @@ PAYMENT_ADDRESSES = """
 
 PAYMENT_KEYWORDS = ["payment", "pay", "address", "wallet", "usdc", "lightning", "reward", "bounty", "stripe", "fund"]
 REWARD_PATTERN = re.compile(r'(?:\$|USD\s*)(\d{1,5})(?:\.\d{1,2})?|(\d{1,5})\s*(?:\$|USD)', re.IGNORECASE)
+# Palabras clave que indican un error de script (para dbgagent)
+SCRIPT_ERROR_KEYWORDS = ["error", "exception", "crash", "traceback", "fails", "broken", "bug"]
 
 def extraer_recompensa(texto):
     if not texto: return None
@@ -36,11 +39,9 @@ def clasificar_codigo(texto):
 def crear_notificacion_issue(title, url, monto, tipo):
     print("🔔 Creando notificación en tu repositorio...")
     monto_str = f"${monto}" if monto != "Desconocido" else "Recompensa no especificada"
-    
     issue_url = f"https://api.github.com/repos/{MY_REPO}/issues"
     body = f"🤖 **Bounty Encontrado**\n\n- **Título:** {title}\n- **Monto:** {monto_str}\n- **Tipo:** {tipo}\n- **Enlace:** [Ir al Issue]({url})"
     res = requests.post(issue_url, headers=HEADERS, json={"title": f"🎯 Bounty ({monto_str}): {tipo}", "body": body})
-    
     if res.status_code == 201:
         print("✅ Notificación creada en la pestaña Issues de tu repo.")
     else:
@@ -49,7 +50,6 @@ def crear_notificacion_issue(title, url, monto, tipo):
 def buscar_issues():
     issues = []
     search_url = "https://api.github.com/search/issues?q=is:issue+is:open+language:Python+label:%22good+first+issue%22&sort=created&order=desc&per_page=10"
-    
     print("🔎 Buscando issues en GitHub (good first issue / help wanted)...")
     try:
         res = requests.get(search_url, headers=HEADERS)
@@ -57,20 +57,12 @@ def buscar_issues():
             items = res.json().get("items", [])
             print(f"   Analizando {len(items)} issues recientes...")
             for item in items:
-                # 1. Intentar extraer recompensa
                 monto = extraer_recompensa(item["title"] + " " + (item.get("body") or ""))
-                
-                # Si no hay monto, lo marcamos como Desconocido en lugar de descartarlo
-                if not monto:
-                    monto = "Desconocido"
-                
-                # 2. Clasificar el tipo de código
+                if not monto: monto = "Desconocido"
                 tipo_codigo = clasificar_codigo(item["title"] + " " + (item.get("body") or ""))
-                
                 item["_monto_detectado"] = monto
                 item["_tipo_codigo"] = tipo_codigo
                 issues.append(item)
-                
                 estado_monto = f"${monto}" if monto != "Desconocido" else "No especificado"
                 print(f"   ✅ SELECCIONADO: '{item['title'][:40]}...' | Monto: {estado_monto} | Tipo: {tipo_codigo}")
         else:
@@ -90,7 +82,6 @@ def resolver_issue(issue):
     issue_url = issue["html_url"]
 
     print(f"\n🔍 Analizando: '{title}' | 💵 {monto} | 🏷️ {tipo_codigo}")
-    
     crear_notificacion_issue(title, issue_url, monto, tipo_codigo)
 
     if os.path.exists("repo_temp"): subprocess.run(["rm", "-rf", "repo_temp"])
@@ -107,7 +98,7 @@ def resolver_issue(issue):
     base_branch = "main" if "origin/main" in branch_res.stdout else "master"
     cambio_realizado = False
 
-    # Lógica para Typos
+    # --- LÓGICA EXISTENTE: Typos y Copyright ---
     if "typo" in title.lower() or "readme" in title.lower():
         typos = {"recieve": "receive", "occured": "occurred", "seperate": "separate", "definately": "definitely", "teh": "the"}
         for old, new in typos.items():
@@ -118,7 +109,6 @@ def resolver_issue(issue):
                     with open(f, "w") as file: file.write(content.replace(old, new))
                     print(f"  ✅ Corregido '{old}' -> '{new}' en {f}")
                     cambio_realizado = True
-    # Lógica para Copyright
     elif "copyright" in title.lower() or "year" in title.lower():
         for root, dirs, files in os.walk("."):
             if ".git" in root: continue
@@ -134,6 +124,36 @@ def resolver_issue(issue):
                             cambio_realizado = True
                     except: pass
 
+    # --- NUEVA LÓGICA: Integración con dbgagent + Gemini para errores de script ---
+    if not cambio_realizado and any(kw in (title + " " + issue_body).lower() for kw in SCRIPT_ERROR_KEYWORDS):
+        if not GEMINI_API_KEY:
+            print("  ⚠️ Issue de error detectado, pero falta GEMINI_API_KEY para usar dbgagent.")
+        else:
+            print("  🤖 Invocando a dbgagent con Gemini para intentar reparar el script...")
+            env = os.environ.copy()
+            env["LLM_PROVIDER"] = "GEMINI"
+            env["GEMINI_API_KEY"] = GEMINI_API_KEY
+            
+            # Ejecutamos dbgagent fix en el directorio del repositorio
+            try:
+                res_dbg = subprocess.run(["dbgagent", "fix", "."], capture_output=True, text=True, env=env, timeout=120)
+                print(res_dbg.stdout)
+                if res_dbg.stderr:
+                    print(res_dbg.stderr)
+                
+                # Verificar si dbgagent modificó algún archivo
+                git_status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+                if git_status.stdout.strip():
+                    print("  ✅ dbgagent ha propuesto cambios en el código.")
+                    cambio_realizado = True
+                else:
+                    print("  ℹ️ dbgagent no encontró errores corregibles o no aplicó cambios.")
+            except subprocess.TimeoutExpired:
+                print("  ⏳ dbgagent tardó demasiado tiempo (timeout).")
+            except Exception as e:
+                print(f"  ❌ Error al ejecutar dbgagent: {e}")
+
+    # --- CREAR PR SI HAY CAMBIOS ---
     if cambio_realizado:
         subprocess.run(["git", "config", "user.name", "alfrexo95"])
         subprocess.run(["git", "config", "user.email", "alfrexo95@users.noreply.github.com"])
@@ -149,27 +169,20 @@ def resolver_issue(issue):
         if pr_res.status_code == 201:
             print(f"  🚀 PR Creado: {pr_res.json()['html_url']}")
             
-            # Si el issue menciona pago, dejar el comentario
+            # Comentario de pago si el issue lo menciona
             if any(kw in issue_body.lower() for kw in PAYMENT_KEYWORDS):
-                if monto != "Desconocido":
-                    pago_texto = f"Regarding the reward (${monto}),"
-                else:
-                    pago_texto = "Regarding the reward,"
-                    
+                pago_texto = f"Regarding the reward (${monto})," if monto != "Desconocido" else "Regarding the reward,"
                 comentario = f"Hi! I submitted a PR. {pago_texto} I can receive the payment here:\n{PAYMENT_ADDRESSES}\nThanks!"
                 requests.post(f"https://api.github.com/repos/{repo_name}/issues/{issue_number}/comments", headers=HEADERS, json={"body": comentario})
                 print("  💬 Comentario de pago enviado.")
             return True
-    print("  ❌ No se pudo resolver automáticamente (requiere lógica compleja o es de automatización).")
+    print("  ❌ No se pudo resolver automáticamente.")
     return False
 
 def main():
     if not GITHUB_TOKEN: return
     issues = buscar_issues()
-    if not issues:
-        print("No se encontraron issues hoy.")
-        return
-    # Procesar el más reciente
+    if not issues: return
     resolver_issue(issues[0])
 
 if __name__ == "__main__":
