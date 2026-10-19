@@ -2,7 +2,7 @@ import os
 import re
 import subprocess
 import requests
-import ast # NUEVO: Para leer los docstrings de Python
+import ast
 from datetime import datetime
 
 GITHUB_TOKEN = os.environ.get("PAT_TOKEN")
@@ -12,10 +12,10 @@ YEAR = str(datetime.now().year)
 MY_REPO = "alfrexo95/bounty-bot"
 
 PAYMENT_ADDRESSES = """
-₿ BTC: bc1qt3rukpe7qp737zj5j5xpxxmcqv90cfefhg5e00
-Ξ ETH: 0xA5E6eB31868A85127B1ED82b8C760193356206ED
-Ł LTC: LcwAfm4xeJt5sHHVHAGN4qfiv7ruYKzqTe
-⚡ Lightning: chieftrait089@walletofsatoshi.com
+- BTC: bc1qt3rukpe7qp737zj5j5xpxxmcqv90cfefhg5e00
+- ETH: 0xA5E6eB31868A85127B1ED82b8C760193356206ED
+- LTC: LcwAfm4xeJt5sHHVHAGN4qfiv7ruYKzqTe
+- Lightning: chieftrait089@walletofsatoshi.com
 """
 
 PAYMENT_KEYWORDS = ["payment", "pay", "address", "wallet", "usdc", "lightning", "reward", "bounty", "stripe", "fund"]
@@ -68,12 +68,9 @@ def buscar_issues():
     return issues
 
 def generar_archivo_arquitectura():
-    """Busca en la carpeta src/ y genera docs/ARCHITECTURE.md leyendo los docstrings."""
     print("  📝 Generando ARCHITECTURE.md a partir de docstrings...")
     docs_content = "# Architecture Overview\n\n## Core Modules\n"
     encontrados = 0
-    
-    # Recorrer carpetas buscando archivos .py
     for root, dirs, files in os.walk("."):
         if ".git" in root: continue
         for file in files:
@@ -84,16 +81,13 @@ def generar_archivo_arquitectura():
                         tree = ast.parse(f.read())
                         doc = ast.get_docstring(tree)
                         if doc:
-                            # Tomar la primera línea del docstring
                             short_doc = doc.strip().split('\n')[0]
                             rel_path = os.path.relpath(filepath, '.')
                             docs_content += f"- **{rel_path}**: {short_doc}\n"
                             encontrados += 1
-                except Exception:
-                    pass
+                except: pass
 
     if encontrados == 0:
-        print("  ⚠️ No se encontraron docstrings en el código.")
         return False
 
     docs_content += "\n## Transaction Lifecycle\n1. Wallet signs a transaction.\n2. Transaction is broadcast to the network.\n3. Validated and added to the mempool.\n4. Miner includes it in a new block.\n5. Block is propagated across the network.\n"
@@ -102,16 +96,12 @@ def generar_archivo_arquitectura():
     with open("docs/ARCHITECTURE.md", "w", encoding="utf-8") as f:
         f.write(docs_content)
         
-    # Actualizar CONTRIBUTING.md
     if os.path.exists("CONTRIBUTING.md"):
         with open("CONTRIBUTING.md", "r", encoding="utf-8") as f:
             contrib = f.read()
-        link_text = "\n\nBefore diving into the code, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a high-level map of the modules.\n"
         if "docs/ARCHITECTURE.md" not in contrib:
             with open("CONTRIBUTING.md", "a", encoding="utf-8") as f:
-                f.write(link_text)
-                
-    print(f"  ✅ Archivo generado con {encontrados} módulos documentados.")
+                f.write("\n\nBefore diving into the code, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a high-level map of the modules.\n")
     return True
 
 def resolver_issue(issue):
@@ -133,22 +123,20 @@ def resolver_issue(issue):
     try:
         subprocess.run(["git", "clone", clone_url, "repo_temp"], check=True, capture_output=True)
     except subprocess.CalledProcessError:
-        print("  ❌ Error al clonar el repositorio.")
         return False
         
     os.chdir("repo_temp")
     branch_res = subprocess.run(["git", "branch", "-r"], capture_output=True, text=True)
     base_branch = "main" if "origin/main" in branch_res.stdout else "master"
     cambio_realizado = False
+    tipo_de_cambio = "general" # Para personalizar el mensaje del PR
 
     texto_busqueda = (title + " " + issue_body).lower()
 
-    # --- NUEVA LÓGICA: Resolver Documentación / Arquitectura ---
     if "architecture" in texto_busqueda or "arch.md" in texto_busqueda or "map of src" in texto_busqueda:
         if generar_archivo_arquitectura():
             cambio_realizado = True
-
-    # --- LÓGICA EXISTENTE: Typos y Copyright ---
+            tipo_de_cambio = "docs"
     elif "typo" in title.lower() or "readme" in title.lower():
         typos = {"recieve": "receive", "occured": "occurred", "seperate": "separate", "definately": "definitely", "teh": "the"}
         for old, new in typos.items():
@@ -157,8 +145,8 @@ def resolver_issue(issue):
                 for f in result.stdout.strip().split("\n"):
                     with open(f, "r") as file: content = file.read()
                     with open(f, "w") as file: file.write(content.replace(old, new))
-                    print(f"  ✅ Corregido '{old}' -> '{new}' en {f}")
                     cambio_realizado = True
+                    tipo_de_cambio = "typo"
     elif "copyright" in title.lower() or "year" in title.lower():
         for root, dirs, files in os.walk("."):
             if ".git" in root: continue
@@ -170,45 +158,67 @@ def resolver_issue(issue):
                         nuevo = re.sub(r"Copyright\s+(?:\(c\)\s+)?20[0-2][0-9]", f"Copyright (c) {YEAR}", content)
                         if nuevo != content:
                             with open(path, "w") as f: f.write(nuevo)
-                            print(f"  ✅ Actualizado año en {path}")
                             cambio_realizado = True
+                            tipo_de_cambio = "copyright"
                     except: pass
 
-    # --- INTEGRACIÓN DBGAGENT (Gemini) ---
     if not cambio_realizado and any(kw in texto_busqueda for kw in SCRIPT_ERROR_KEYWORDS):
         if GEMINI_API_KEY:
-            print("  🤖 Invocando a dbgagent con Gemini para intentar reparar el script...")
             env = os.environ.copy()
             env["LLM_PROVIDER"] = "GEMINI"
             env["GEMINI_API_KEY"] = GEMINI_API_KEY
             try:
-                res_dbg = subprocess.run(["dbgagent", "fix", "."], capture_output=True, text=True, env=env, timeout=120)
+                subprocess.run(["dbgagent", "fix", "."], capture_output=True, text=True, env=env, timeout=120)
                 git_status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
                 if git_status.stdout.strip():
-                    print("  ✅ dbgagent ha propuesto cambios en el código.")
                     cambio_realizado = True
+                    tipo_de_cambio = "bug"
             except: pass
 
-    # --- CREAR PR ---
     if cambio_realizado:
         subprocess.run(["git", "config", "user.name", "alfrexo95"])
         subprocess.run(["git", "config", "user.email", "alfrexo95@users.noreply.github.com"])
         subprocess.run(["git", "checkout", "-b", "fix/bot-auto-fix"])
         subprocess.run(["git", "add", "."])
-        subprocess.run(["git", "commit", "-m", f"Fix: {title}"])
+        
+        # MENSAJES DE COMMIT HUMANIZADOS
+        commit_msg = f"Fix: {title}"
+        if tipo_de_cambio == "docs": commit_msg = "docs: Add architecture overview as requested"
+        elif tipo_de_cambio == "typo": commit_msg = "Fix typos found in documentation"
+        elif tipo_de_cambio == "copyright": commit_msg = f"chore: Update copyright year to {YEAR}"
+        
+        subprocess.run(["git", "commit", "-m", commit_msg])
         subprocess.run(["git", "push", "origin", "fix/bot-auto-fix"])
         
+        # MENSAJES DE PR HUMANIZADOS
+        if tipo_de_cambio == "docs":
+            pr_body = f"Hey! I saw issue #{issue_number} and thought I'd help out. I wrote a small script to extract the docstrings from the source files to build this architecture map. Let me know if you want me to adjust the format or add more details."
+        elif tipo_de_cambio == "typo":
+            pr_body = f"Hey! I was reading through the docs and noticed a few small typos mentioned in #{issue_number}. Fixed them here. Let me know if anything else needs tweaking."
+        elif tipo_de_cambio == "copyright":
+            pr_body = f"Hi! Just updating the copyright year as mentioned in #{issue_number}. Small housekeeping PR."
+        elif tipo_de_cambio == "bug":
+             pr_body = f"Hi! I ran the code and noticed the error mentioned in #{issue_number}. I've applied a fix to resolve it. Let me know if you need me to add any tests."
+        else:
+            pr_body = f"Hello! I noticed issue #{issue_number} and submitted a fix. Let me know if you need any adjustments! 🚀"
+
         pr_url = f"https://api.github.com/repos/{repo_name}/pulls"
-        pr_data = {"title": f"Fix: {title}", "head": "fix/bot-auto-fix", "base": base_branch, "body": f"Hello! I noticed issue #{issue_number}. I have submitted a fix for this. Let me know! 🚀"}
+        pr_data = {"title": commit_msg, "head": "fix/bot-auto-fix", "base": base_branch, "body": pr_body}
         pr_res = requests.post(pr_url, headers=HEADERS, json=pr_data)
         
         if pr_res.status_code == 201:
             print(f"  🚀 PR Creado: {pr_res.json()['html_url']}")
+            
+            # COMENTARIO DE PAGO HUMANIZADO
             if any(kw in issue_body.lower() for kw in PAYMENT_KEYWORDS):
-                pago_texto = f"Regarding the reward (${monto})," if monto != "Desconocido" else "Regarding the reward,"
-                comentario = f"Hi! I submitted a PR. {pago_texto} I can receive the payment here:\n{PAYMENT_ADDRESSES}\nThanks!"
+                if monto != "Desconocido":
+                    pago_texto = f"Hey! Just submitted the PR for this. Whenever you get a chance to review it, here are my details for the bounty (${monto}):"
+                else:
+                    pago_texto = "Hey! Just submitted the PR for this. Whenever you get a chance to review it, here are my details for the reward:"
+                    
+                comentario = f"{pago_texto}\n{PAYMENT_ADDRESSES}\n\nThanks! Let me know if you need any changes to the code."
                 requests.post(f"https://api.github.com/repos/{repo_name}/issues/{issue_number}/comments", headers=HEADERS, json={"body": comentario})
-                print("  💬 Comentario de pago enviado.")
+                print("  💬 Comentario de pago enviado con tono humano.")
             return True
             
     print("  ❌ No se pudo resolver automáticamente.")
