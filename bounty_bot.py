@@ -14,7 +14,7 @@ MY_REPO = "alfrexo95/bounty-bot"
 PAYMENT_ADDRESSES = """
 - BTC: bc1qt3rukpe7qp737zj5j5xpxxmcqv90cfefhg5e00
 - ETH: 0xA5E6eB31868A85127B1ED82b8C760193356206ED
-- LTC: LcwAfm4xeJt5sHHVHAGN4qfiv7ruYKzqTe
+- LTC: ltc1qdyyg99l8ehp9aj4ehzvmefglmpl9750226k7ne
 - Lightning: chieftrait089@walletofsatoshi.com
 """
 
