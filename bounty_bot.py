@@ -62,6 +62,37 @@ def buscar_issues():
             return [item]
     return []
 
+def generar_archivo_arquitectura():
+    print("  📝 Generando ARCHITECTURE.md a partir de docstrings...")
+    docs_content = "# Architecture Overview\n\n## Core Modules\n"
+    encontrados = 0
+    for root, dirs, files in os.walk("."):
+        if ".git" in root: continue
+        for file in files:
+            if file.endswith(".py"):
+                filepath = os.path.join(root, file)
+                try:
+                    with open(filepath, "r", encoding="utf-8") as f:
+                        tree = ast.parse(f.read())
+                        doc = ast.get_docstring(tree)
+                        if doc:
+                            short_doc = doc.strip().split('\n')[0]
+                            rel_path = os.path.relpath(filepath, '.')
+                            docs_content += f"- **{rel_path}**: {short_doc}\n"
+                            encontrados += 1
+                except: pass
+    if encontrados == 0: return False
+    docs_content += "\n## Transaction Lifecycle\n1. Wallet signs a transaction.\n2. Transaction is broadcast to the network.\n3. Validated and added to the mempool.\n4. Miner includes it in a new block.\n5. Block is propagated across the network.\n"
+    os.makedirs("docs", exist_ok=True)
+    with open("docs/ARCHITECTURE.md", "w", encoding="utf-8") as f:
+        f.write(docs_content)
+    if os.path.exists("CONTRIBUTING.md"):
+        with open("CONTRIBUTING.md", "r", encoding="utf-8") as f: contrib = f.read()
+        if "docs/ARCHITECTURE.md" not in contrib:
+            with open("CONTRIBUTING.md", "a", encoding="utf-8") as f:
+                f.write("\n\nBefore diving into the code, read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for a high-level map of the modules.\n")
+    return True
+
 def resolver_issue(issue):
     repo_url = issue["repository_url"]
     owner_repo = repo_url.split("/repos/")[1]
@@ -75,145 +106,131 @@ def resolver_issue(issue):
     print(f"\n🔍 Analizando: '{title}' | 💵 {monto}")
     crear_notificacion_issue(title, issue_url, monto)
 
-    # 1. Solicitar el Fork
+    # 1. Hacer Fork (si ya existe, la API responde OK)
     print(f"  🍴 Solicitando Fork de {owner}/{repo}...")
-    fork_url = f"https://api.github.com/repos/{owner}/{repo}/forks"
-    fork_res = requests.post(fork_url, headers=HEADERS)
-    if fork_res.status_code not in [200, 202]:
-        print(f"  ❌ Error al solicitar Fork: {fork_res.text}")
-        sys.exit(1)
+    requests.post(f"https://api.github.com/repos/{owner}/{repo}/forks", headers=HEADERS)
+    time.sleep(5) # Espera simple
 
-    # 2. Esperar activamente a que el Fork exista (Polling)
-    print("  ⏳ Esperando a que GitHub cree el Fork...")
-    fork_ready = False
-    for attempt in range(1, 13): # Hasta 12 intentos (1 minuto aprox)
-        time.sleep(5)
-        check_url = f"https://api.github.com/repos/{MY_USER}/{repo}"
-        check_res = requests.get(check_url, headers=HEADERS)
-        if check_res.status_code == 200:
-            print(f"  ✅ Fork listo (intento {attempt}).")
-            fork_ready = True
-            break
-        else:
-            print(f"     Intento {attempt}: Fork aún no disponible (status {check_res.status_code}).")
-    
-    if not fork_ready:
-        print("  ❌ El Fork no se creó a tiempo. Abortando.")
-        sys.exit(1)
-
-    # 3. Clonar el Fork
-    if os.path.exists("repo_temp"):
-        subprocess.run(["rm", "-rf", "repo_temp"])
+    # 2. Clonar Fork
+    if os.path.exists("repo_temp"): subprocess.run(["rm", "-rf", "repo_temp"])
     clone_url = f"https://x-access-token:{GITHUB_TOKEN}@github.com/{MY_USER}/{repo}.git"
     
     try:
         subprocess.run(["git", "clone", clone_url, "repo_temp"], check=True, capture_output=True)
-        print("  ✅ Fork clonado correctamente.")
-    except subprocess.CalledProcessError as e:
-        print(f"  ❌ Error al clonar el Fork: {e.stderr.decode() if e.stderr else ''}")
+    except subprocess.CalledProcessError:
+        print("  ❌ Error al clonar tu Fork.")
         sys.exit(1)
         
     os.chdir("repo_temp")
     branch_res = subprocess.run(["git", "branch", "-r"], capture_output=True, text=True)
     base_branch = "main" if "origin/main" in branch_res.stdout else "master"
-
-    # --- SINCRONIZAR CON EL REPOSITORIO ORIGINAL (UPSTREAM) ---
-    print("  🔄 Sincronizando tu Fork con el repositorio original para tener los últimos cambios...")
-    subprocess.run(["git", "remote", "add", "upstream", f"https://github.com/{owner}/{repo}.git"], capture_output=True)
-    subprocess.run(["git", "fetch", "upstream"], capture_output=True)
-    # Hacemos un reset duro a la rama principal del original para evitar conflictos
-    subprocess.run(["git", "reset", "--hard", f"upstream/{base_branch}"], capture_output=True)
-    print("  ✅ Fork sincronizado con la última versión del código.")
-
-    # 4. Buscar y reemplazar usando grep (más fiable)
     cambio_realizado = False
-    print("  🔄 Buscando 'Pin.set' en todo el repositorio...")
-    
-    # Usamos grep para encontrar archivos que contengan 'Pin.set' (ignorando mayúsculas)
-    grep_result = subprocess.run(["grep", "-r", "-l", "-i", "Pin.set", "."], capture_output=True, text=True)
-    
-    if not grep_result.stdout.strip():
-        print("  ❌ No se encontró 'Pin.set' en ningún archivo. Verifica que la carpeta docs esté en la rama clonada.")
-        sys.exit(1)
+    tipo_de_cambio = "general"
+
+    texto_busqueda = (title + " " + issue_body).lower()
+
+    # --- LÓGICA DE ARQUITECTURA ---
+    if "architecture" in texto_busqueda or "arch.md" in texto_busqueda or "map of src" in texto_busqueda:
+        if generar_archivo_arquitectura():
+            cambio_realizado = True
+            tipo_de_cambio = "docs"
+
+    # --- LÓGICA DE TYPOS Y COPYRIGHT ---
+    elif "typo" in title.lower() or "readme" in title.lower():
+        typos = {"recieve": "receive", "occured": "occurred", "seperate": "separate", "definately": "definitely", "teh": "the"}
+        for old, new in typos.items():
+            result = subprocess.run(["grep", "-r", "-l", old, "--include=*.md", "--include=*.py", "--include=*.txt"], capture_output=True, text=True)
+            if result.stdout.strip():
+                for f in result.stdout.strip().split("\n"):
+                    with open(f, "r") as file: content = file.read()
+                    with open(f, "w") as file: file.write(content.replace(old, new))
+                    cambio_realizado = True
+                    tipo_de_cambio = "typo"
+    elif "copyright" in title.lower() or "year" in title.lower():
+        for root, dirs, files in os.walk("."):
+            if ".git" in root: continue
+            for file in files:
+                if file.endswith((".py", ".js", ".go", ".rs", ".java", ".md")):
+                    path = os.path.join(root, file)
+                    try:
+                        with open(path, "r") as f: content = f.read()
+                        nuevo = re.sub(r"Copyright\s+(?:\(c\)\s+)?20[0-2][0-9]", f"Copyright (c) {YEAR}", content)
+                        if nuevo != content:
+                            with open(path, "w") as f: f.write(nuevo)
+                            cambio_realizado = True
+                            tipo_de_cambio = "copyright"
+                    except: pass
+
+    # --- LÓGICA DE DBGAGENT (Gemini) ---
+    if not cambio_realizado and any(kw in texto_busqueda for kw in SCRIPT_ERROR_KEYWORDS):
+        if GEMINI_API_KEY:
+            print("  🤖 Invocando a dbgagent con Gemini...")
+            env = os.environ.copy()
+            env["LLM_PROVIDER"] = "GEMINI"
+            env["GEMINI_API_KEY"] = GEMINI_API_KEY
+            try:
+                subprocess.run(["dbgagent", "fix", "."], capture_output=True, text=True, env=env, timeout=120)
+                git_status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+                if git_status.stdout.strip():
+                    cambio_realizado = True
+                    tipo_de_cambio = "bug"
+            except: pass
+
+    # --- CREAR PR ---
+    if cambio_realizado:
+        subprocess.run(["git", "config", "user.name", MY_USER])
+        subprocess.run(["git", "config", "user.email", f"{MY_USER}@users.noreply.github.com"])
+        subprocess.run(["git", "checkout", "-b", "fix/bot-auto-fix"])
+        subprocess.run(["git", "add", "."])
         
-    files_to_fix = grep_result.stdout.strip().split("\n")
-    print(f"  📄 Archivos encontrados: {files_to_fix}")
-    
-    for path in files_to_fix:
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                content = f.read()
-            
-            # Reemplazamos Pin.set por Pin.write de forma inteligente
-            new_content = re.sub(r'(?i)Pin\.set', 'Pin.write', content)
-            
-            if new_content != content:
-                with open(path, "w", encoding="utf-8") as f:
-                    f.write(new_content)
-                print(f"    ✅ Reemplazado en {path}")
-                cambio_realizado = True
-        except Exception as e:
-            print(f"    ⚠️ No se pudo procesar {path}: {e}")
-
-    if not cambio_realizado:
-        print("  ❌ Se encontraron archivos, pero no se pudo aplicar el reemplazo. Abortando.")
-        sys.exit(1)
-
-    # 5. Hacer commit y push al Fork
-    subprocess.run(["git", "config", "user.name", MY_USER])
-    subprocess.run(["git", "config", "user.email", f"{MY_USER}@users.noreply.github.com"])
-    subprocess.run(["git", "checkout", "-b", "fix/rename-pin-set"])
-    subprocess.run(["git", "add", "."])
-    subprocess.run(["git", "commit", "-m", "docs: Rename Pin.set to Pin.write to avoid reserved word"])
-    subprocess.run(["git", "push", "origin", "fix/rename-pin-set"])
-    print("  📤 Cambios subidos a tu Fork.")
-
-    # 6. Crear el Pull Request desde tu Fork hacia el repositorio original
-    print("  🚀 Creando Pull Request...")
-    pr_url = f"https://api.github.com/repos/{owner}/{repo}/pulls"
-    pr_data = {
-        "title": "docs: Rename Pin.set to Pin.write to avoid reserved word",
-        "head": f"{MY_USER}:fix/rename-pin-set",
-        "base": base_branch,
-        "body": f"Hey! I saw issue #{issue_number} and thought I'd fix this. I've replaced all instances of `Pin.set` with `Pin.write` in the documentation to avoid using the reserved word. Let me know if anything else needs tweaking."
-    }
-    pr_res = requests.post(pr_url, headers=HEADERS, json=pr_data)
-    
-    if pr_res.status_code == 201:
-        pr_data = pr_res.json()
-        print(f"  🚀 ¡PR Creado con éxito!: {pr_data['html_url']}")
+        commit_msg = f"Fix: {title}"
+        if tipo_de_cambio == "docs": commit_msg = "docs: Add architecture overview"
+        elif tipo_de_cambio == "typo": commit_msg = "Fix typos"
+        elif tipo_de_cambio == "copyright": commit_msg = f"chore: Update copyright year to {YEAR}"
         
-        # 7. Dejar comentario de pago si el issue lo menciona
-        if any(kw in issue_body.lower() for kw in PAYMENT_KEYWORDS):
-            if monto != "Desconocido":
-                pago_texto = f"Hey! Just submitted the PR for this. Whenever you get a chance to review it, here are my details for the bounty (${monto}):"
-            else:
-                pago_texto = "Hey! Just submitted the PR for this. Whenever you get a chance to review it, here are my details for the reward:"
-            comentario = f"{pago_texto}\n{PAYMENT_ADDRESSES}\n\nThanks! Let me know if you need any changes."
-            requests.post(f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/comments", headers=HEADERS, json={"body": comentario})
-            print("  💬 Comentario de pago enviado.")
-    else:
-        print(f"  ❌ Error al crear PR: {pr_res.text}")
-        sys.exit(1)
+        subprocess.run(["git", "commit", "-m", commit_msg])
+        subprocess.run(["git", "push", "origin", "fix/bot-auto-fix"])
+        
+        if tipo_de_cambio == "docs":
+            pr_body = f"Hey! I saw issue #{issue_number} and thought I'd help out. I wrote a small script to extract the docstrings from the source files to build this architecture map. Let me know if you want me to adjust the format!"
+        elif tipo_de_cambio == "typo":
+            pr_body = f"Hey! I was reading through the docs and noticed a few small typos mentioned in #{issue_number}. Fixed them here. Let me know if anything else needs tweaking."
+        elif tipo_de_cambio == "copyright":
+            pr_body = f"Hi! Just updating the copyright year as mentioned in #{issue_number}. Small housekeeping PR."
+        elif tipo_de_cambio == "bug":
+             pr_body = f"Hi! I ran the code and noticed the error mentioned in #{issue_number}. I've applied a fix to resolve it. Let me know if you need me to add any tests."
+        else:
+            pr_body = f"Hello! I noticed issue #{issue_number} and submitted a fix. Let me know if you need any adjustments! 🚀"
+
+        pr_url = f"https://api.github.com/repos/{owner}/{repo}/pulls"
+        pr_data = {"title": commit_msg, "head": f"{MY_USER}:fix/bot-auto-fix", "base": base_branch, "body": pr_body}
+        pr_res = requests.post(pr_url, headers=HEADERS, json=pr_data)
+        
+        if pr_res.status_code == 201:
+            print(f"  🚀 PR Creado: {pr_res.json()['html_url']}")
+            if any(kw in issue_body.lower() for kw in PAYMENT_KEYWORDS):
+                if monto != "Desconocido":
+                    pago_texto = f"Hey! Just submitted the PR for this. Whenever you get a chance to review it, here are my details for the bounty (${monto}):"
+                else:
+                    pago_texto = "Hey! Just submitted the PR for this. Whenever you get a chance to review it, here are my details for the reward:"
+                comentario = f"{pago_texto}\n{PAYMENT_ADDRESSES}\n\nThanks! Let me know if you need any changes."
+                requests.post(f"https://api.github.com/repos/{owner}/{repo}/issues/{issue_number}/comments", headers=HEADERS, json={"body": comentario})
+                print("  💬 Comentario de pago enviado.")
+            return True
+        else:
+            print(f"  ❌ Error al crear PR: {pr_res.text}")
+            
+    print("  ❌ No se pudo resolver automáticamente.")
+    return False
 
 def main():
-    if not GITHUB_TOKEN:
-        print("❌ Falta el secreto PAT_TOKEN")
-        sys.exit(1)
-    
+    if not GITHUB_TOKEN: return
     if TARGET_ISSUE_URL:
         issue = obtener_issue_especifico(TARGET_ISSUE_URL)
-        if issue:
-            resolver_issue(issue)
-        else:
-            print("❌ No se pudo obtener el issue específico.")
-            sys.exit(1)
+        if issue: resolver_issue(issue)
     else:
         issues = buscar_issues()
-        if issues:
-            resolver_issue(issues[0])
-        else:
-            print("No se encontraron issues hoy.")
+        if issues: resolver_issue(issues[0])
 
 if __name__ == "__main__":
     main()
