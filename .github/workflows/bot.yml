@@ -1,17 +1,11 @@
 name: Bounty Hunter Bot
 on:
   schedule:
-    - cron: '0 10,18 * * *'
+    - cron: '0 */6 * * *'
   workflow_dispatch:
-    inputs:
-      issue_url:
-        description: 'URL del issue especifico a resolver (opcional)'
-        required: false
-        default: ''
 
 permissions:
   contents: write
-  pull-requests: write
   issues: write
 
 jobs:
@@ -23,10 +17,13 @@ jobs:
         with:
           python-version: '3.10'
       - name: Install dependencies
-        run: pip install requests dbgagent
+        run: pip install requests
       - name: Run Bot
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          ISSUE_URL: ${{ github.event.inputs.issue_url }}
         run: python bounty_bot.py
+      - name: Guardar estado de issues vistos
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "Auto-update: Issues vistos actualizados"
+          file_pattern: 'seen_issues.json'
