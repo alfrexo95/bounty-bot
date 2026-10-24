@@ -28,7 +28,6 @@ def save_seen(seen):
 def crear_notificacion(plataforma, title, url, monto, seen):
     if url in seen or url.startswith("https://github.com/alfrexo95"):
         return False
-        
     body = f"""🤖 **Bounty Encontrado en {plataforma}**
 
 - **Título:** {title}
@@ -65,51 +64,59 @@ def buscar_aigen(seen):
                     monto = m.get("reward", "Desconocido")
                     link = m.get("url", "https://cryptogenesis.duckdns.org/work/board")
                     crear_notificacion("Aigen Protocol", title, link, monto, seen)
-        else:
-            print(f"  ⚠️ Error Aigen: {res.status_code}")
     except Exception as e:
         print(f"  ❌ Error de conexión Aigen: {e}")
 
-def buscar_vgrant(seen):
-    print("🔎 Buscando issues de vGrant en GitHub...")
+def buscar_arc(seen):
+    print("🔎 Buscando bounties en ARC (ArcBounty)...")
+    url = "https://arcbounty.app/api/v1/bounties?status=open"
+    try:
+        res = requests.get(url, timeout=15)
+        if res.status_code == 200:
+            bounties = res.json()
+            for b in bounties[:5]:
+                title = b.get("title", "Bounty sin título")
+                monto = f"${b.get('reward', 'N/A')} USDC"
+                link = f"https://arcbounty.app/bounty/{b.get('id', '')}"
+                crear_notificacion("ARC (ArcBounty)", title, link, monto, seen)
+    except Exception as e:
+        print(f"  ❌ Error de conexión ARC: {e}")
+
+def buscar_github_web3(seen):
+    print("🔎 Buscando issues de Roxonn, MergePay y USDC en GitHub...")
     queries = [
         "label:bounty+is:issue+is:open+language:Python+USDC",
-        "label:bounty+is:issue+is:open+language:Python+vGrant"
+        "label:bounty+is:issue+is:open+language:Python+Roxonn",
+        "label:bounty+is:issue+is:open+language:Python+MergePay"
     ]
     for query in queries:
-        url = f"https://api.github.com/search/issues?q={query}&sort=created&order=desc&per_page=3"
+        url = f"https://api.github.com/search/issues?q={query}&sort=created&order=desc&per_page=5"
         try:
             res = requests.get(url, headers=HEADERS)
             if res.status_code == 200:
                 for item in res.json().get("items", []):
-                    title = item["title"]
                     link = item["html_url"]
+                    if "alfrexo95/bounty-bot" in link: continue
                     
-                    # Filtro 1: Excluir mi propio repositorio
-                    if "alfrexo95/bounty-bot" in link:
-                        continue
-                    
-                    # Filtro 2: Excluir "bounty farms" (repos con 0 PRs fusionados)
                     repo_name = link.split("/")[3] + "/" + link.split("/")[4]
-                    repo_check = requests.get(f"https://api.github.com/repos/{repo_name}", headers=HEADERS)
-                    if repo_check.status_code == 200:
-                        repo_data = repo_check.json()
-                        # Si el repo tiene menos de 5 PRs fusionados, lo saltamos
-                        prs_url = f"https://api.github.com/search/issues?q=repo:{repo_name}+is:pr+is:merged&per_page=1"
-                        prs_res = requests.get(prs_url, headers=HEADERS)
-                        if prs_res.status_code == 200 and prs_res.json().get("total_count", 0) == 0:
-                            print(f"  ⏭️ Saltando {repo_name} (0 PRs fusionados, probable farm)")
-                            continue
+                    # Filtro anti-farm: evitar repos con 0 PRs fusionados
+                    prs_url = f"https://api.github.com/search/issues?q=repo:{repo_name}+is:pr+is:merged&per_page=1"
+                    prs_res = requests.get(prs_url, headers=HEADERS)
+                    if prs_res.status_code == 200 and prs_res.json().get("total_count", 0) == 0:
+                        print(f"  ⏭️ Saltando {repo_name} (0 PRs fusionados)")
+                        continue
                     
                     body = (item.get("body") or "").lower()
                     match = re.search(r'(?:\$|USD\s*)(\d{1,5})', body, re.IGNORECASE)
                     monto = f"${match.group(1)}" if match else "Ver enlace"
-                    crear_notificacion("vGrant (USDC)", title, link, monto, seen)
+                    plataforma = "MergePay" if "mergepay" in body else ("Roxonn" if "roxonn" in body else "Web3")
+                    crear_notificacion(plataforma, item["title"], link, monto, seen)
         except Exception as e:
-            print(f"  ❌ Error en búsqueda vGrant: {e}")
+            print(f"  ❌ Error en búsqueda GitHub: {e}")
 
 if __name__ == "__main__":
     seen_urls = load_seen()
     buscar_aigen(seen_urls)
-    buscar_vgrant(seen_urls)
+    buscar_arc(seen_urls)
+    buscar_github_web3(seen_urls)
     save_seen(seen_urls)
