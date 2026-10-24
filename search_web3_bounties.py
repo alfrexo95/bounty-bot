@@ -26,7 +26,7 @@ def save_seen(seen):
         json.dump(list(seen), f, indent=2)
 
 def crear_notificacion(plataforma, title, url, monto, seen):
-    if url in seen:
+    if url in seen or url.startswith("https://github.com/alfrexo95"):
         return False
         
     body = f"""🤖 **Bounty Encontrado en {plataforma}**
@@ -84,6 +84,23 @@ def buscar_vgrant(seen):
                 for item in res.json().get("items", []):
                     title = item["title"]
                     link = item["html_url"]
+                    
+                    # Filtro 1: Excluir mi propio repositorio
+                    if "alfrexo95/bounty-bot" in link:
+                        continue
+                    
+                    # Filtro 2: Excluir "bounty farms" (repos con 0 PRs fusionados)
+                    repo_name = link.split("/")[3] + "/" + link.split("/")[4]
+                    repo_check = requests.get(f"https://api.github.com/repos/{repo_name}", headers=HEADERS)
+                    if repo_check.status_code == 200:
+                        repo_data = repo_check.json()
+                        # Si el repo tiene menos de 5 PRs fusionados, lo saltamos
+                        prs_url = f"https://api.github.com/search/issues?q=repo:{repo_name}+is:pr+is:merged&per_page=1"
+                        prs_res = requests.get(prs_url, headers=HEADERS)
+                        if prs_res.status_code == 200 and prs_res.json().get("total_count", 0) == 0:
+                            print(f"  ⏭️ Saltando {repo_name} (0 PRs fusionados, probable farm)")
+                            continue
+                    
                     body = (item.get("body") or "").lower()
                     match = re.search(r'(?:\$|USD\s*)(\d{1,5})', body, re.IGNORECASE)
                     monto = f"${match.group(1)}" if match else "Ver enlace"
