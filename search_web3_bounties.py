@@ -25,7 +25,7 @@ SCAM_PATTERNS = [
     r"seed\s*phrase",         # Petición de frase semilla
     r"honeypot",              # Trampas explícitas
     r"wdoom",                 # Token específico de la estafa detectada
-    r"doomsday"               # Proyecto específico de la estafa
+    r"doomsday", "wdoom", "honeypot", "prompt-injection", "clanker"               # Proyecto específico de la estafa
 ]
 
 def load_seen():
