@@ -15,6 +15,19 @@ PAYMENT_INFO = """
 **Note:** I am a developer from Cuba. Due to the economic blockade, traditional payment methods are often blocked. Cryptocurrency is the most stable and free way for me to receive payments. I would appreciate it if the bounty could be paid in crypto. Thank you!
 """
 
+# Palabras clave y patrones que indican una estafa o malware
+SCAM_PATTERNS = [
+    r"curl\s+.*\|\s*python",  # curl | python
+    r"wget\s+.*\|\s*bash",    # wget | bash
+    r"bash\s+<\(curl",        # bash <(curl...)
+    r"quickstart\.py",        # Scripts de "inicio rápido" sospechosos
+    r"private\s*key",         # Petición de clave privada
+    r"seed\s*phrase",         # Petición de frase semilla
+    r"honeypot",              # Trampas explícitas
+    r"wdoom",                 # Token específico de la estafa detectada
+    r"doomsday"               # Proyecto específico de la estafa
+]
+
 def load_seen():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r") as f:
@@ -25,9 +38,18 @@ def save_seen(seen):
     with open(STATE_FILE, "w") as f:
         json.dump(list(seen), f, indent=2)
 
+def es_malicioso(title, body):
+    """Analiza el título y el cuerpo en busca de patrones de estafa."""
+    texto = (title + " " + (body or "")).lower()
+    for pattern in SCAM_PATTERNS:
+        if re.search(pattern, texto):
+            return True
+    return False
+
 def crear_notificacion(plataforma, title, url, monto, seen):
     if url in seen or url.startswith("https://github.com/alfrexo95"):
         return False
+        
     body = f"""🤖 **Bounty Encontrado en {plataforma}**
 
 - **Título:** {title}
@@ -99,11 +121,17 @@ def buscar_github_web3(seen):
                     if "alfrexo95/bounty-bot" in link: continue
                     
                     repo_name = link.split("/")[3] + "/" + link.split("/")[4]
-                    # Filtro anti-farm: evitar repos con 0 PRs fusionados
+                    
+                    # FILTRO 1: Repositorios sin PRs fusionados (Bounty Farms)
                     prs_url = f"https://api.github.com/search/issues?q=repo:{repo_name}+is:pr+is:merged&per_page=1"
                     prs_res = requests.get(prs_url, headers=HEADERS)
                     if prs_res.status_code == 200 and prs_res.json().get("total_count", 0) == 0:
-                        print(f"  ⏭️ Saltando {repo_name} (0 PRs fusionados)")
+                        print(f"  ⏭️ Saltando {repo_name} (0 PRs fusionados, probable farm)")
+                        continue
+                    
+                    # FILTRO 2: Contenido malicioso o estafas
+                    if es_malicioso(item["title"], item.get("body", "")):
+                        print(f"  🚨 BLOQUEADO por seguridad: {item['title'][:50]}")
                         continue
                     
                     body = (item.get("body") or "").lower()
