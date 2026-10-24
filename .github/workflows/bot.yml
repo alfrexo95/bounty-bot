@@ -1,7 +1,7 @@
 name: Bounty Hunter Bot
 on:
   schedule:
-    - cron: '0 */6 * * *'
+    - cron: '0 */3 * * *' # <-- CAMBIADO A CADA 3 HORAS
   workflow_dispatch:
 
 permissions:
