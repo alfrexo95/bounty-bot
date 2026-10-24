@@ -25,5 +25,5 @@ jobs:
       - name: Guardar estado de issues vistos
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
-          commit_message: "Auto-update: Issues vistos actualizados"
+          commit_message: "Auto-update: Bounties seguros vistos actualizados"
           file_pattern: 'seen_issues.json'
