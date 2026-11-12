@@ -32,6 +32,21 @@ SEARCH_QUERIES = [
     "label:%22good+first+issue%22+is:issue+is:open+language:Python+bounty"
 ]
 
+# Patrones que indican estafa, honeypot o prompt-injection (igual que en search_web3_bounties.py)
+SCAM_PATTERNS = [
+    r"curl\s+.*\|\s*python",  # curl | python
+    r"wget\s+.*\|\s*bash",    # wget | bash
+    r"bash\s+<\(curl",        # bash <(curl...)
+    r"quickstart\.py",        # Scripts de "inicio rápido" sospechosos
+    r"private\s*key",         # Petición de clave privada
+    r"seed\s*phrase",         # Petición de frase semilla
+    r"honeypot",              # Trampas explícitas
+    r"wdoom",                 # Token específico de la estafa detectada
+    r"doomsday",              # Proyecto específico de la estafa detectada
+    r"bounty[- ]?guard",       # BountyGuard (doomsday-network): instala código externo en tu workflow
+    "wdoom", "honeypot", "prompt-injection", "clanker"
+]
+
 def load_seen():
     if os.path.exists(STATE_FILE):
         with open(STATE_FILE, "r") as f:
@@ -41,6 +56,21 @@ def load_seen():
 def save_seen(seen):
     with open(STATE_FILE, "w") as f:
         json.dump(list(seen), f, indent=2)
+
+def es_malicioso(title, body):
+    """Analiza el título y el cuerpo en busca de patrones de estafa."""
+    texto = (title + " " + (body or "")).lower()
+    for pattern in SCAM_PATTERNS:
+        if re.search(pattern, texto):
+            return True
+    return False
+
+def es_bounty_sospechoso(item):
+    """True si el issue es de nuestro propio repo o contiene contenido malicioso."""
+    url = item.get("html_url", "")
+    if f"/{MY_REPO}/" in url:
+        return True
+    return es_malicioso(item.get("title", ""), item.get("body", ""))
 
 def crear_notificacion(title, url, monto, plataforma):
     monto_str = f"${monto}" if monto != "Desconocido" else "Ver enlace"
@@ -80,6 +110,10 @@ def buscar_issues():
             res = requests.get(url, headers=HEADERS)
             if res.status_code == 200:
                 for item in res.json().get("items", []):
+                    # FILTRO: ignorar issues de nuestro propio repo y estafas/honeypots
+                    if es_bounty_sospechoso(item):
+                        print(f"  🚨 BLOQUEADO por seguridad: {item['title'][:50]}")
+                        continue
                     title_lower = item["title"].lower()
                     body_lower = (item.get("body") or "").lower()
                     full_text = title_lower + " " + body_lower
