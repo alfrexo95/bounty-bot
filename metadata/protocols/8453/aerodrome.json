@@ -1,0 +1,24 @@
+{
+  "protocol": "Aerodrome Finance",
+  "slug": "aerodrome",
+  "chain_id": 8453,
+  "tvl_min_threshold": 10000000,
+  "contracts": [
+    {
+      "name": "AerodromeFactory",
+      "address": "0x420DD3807E0e105E77138913040431577291ff97",
+      "type": "factory"
+    },
+    {
+      "name": "Voter",
+      "address": "0x16613524e02ad97eDfeF371bC883F2F5d6C48cd7",
+      "type": "governance"
+    }
+  ],
+  "sources": {
+    "defillama": "https://defillama.com/protocol/aerodrome",
+    "official_docs": "https://docs.aerodrome.finance/"
+  },
+  "status": "active",
+  "last_updated": "2023-10-27"
+}
