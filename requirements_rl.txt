@@ -1,0 +1,8 @@
+trl>=0.12.0
+transformers>=4.48.0
+accelerate>=1.3.0
+peft>=0.14.0
+datasets>=3.2.0
+bitsandbytes>=0.45.0
+sentencepiece
+vllm>=0.7.0
