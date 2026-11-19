@@ -1,0 +1,11 @@
+{
+  "mismatch_resolutions": [
+    {
+      "issue_id": 23,
+      "chain_id": 8453,
+      "protocol": "Aerodrome Finance",
+      "detected_tvl": 640000000,
+      "action": "INDEX_PROTOCOL"
+    }
+  ]
+}
