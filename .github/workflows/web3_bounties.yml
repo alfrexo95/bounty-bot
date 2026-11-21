@@ -23,6 +23,26 @@ jobs:
         env:
           PAT_TOKEN: ${{ secrets.PAT_TOKEN }}
         run: python search_web3_bounties.py
+      - name: Register Web3 Bounty Bot in Predator Hub (optional)
+        if: ${{ secrets.INFRA_HUB_TOKEN != '' }}
+        continue-on-error: true
+        env:
+          HUB_TOKEN: ${{ secrets.INFRA_HUB_TOKEN }}
+          HUB_URL: https://x402-api-wigc.onrender.com
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
+            hour="$(date -u +%H)"
+            if (( 10#$hour % 6 != 0 )); then echo "Hub heartbeat skipped this cycle"; exit 0; fi
+          fi
+          curl --silent --show-error --fail --max-time 15 \
+            -H "Authorization: Bearer $HUB_TOKEN" -H "Content-Type: application/json" \
+            -d '{"agent_id":"bounty-bot","platform":"github-actions","capabilities":["web3.bounty.search","issue.scan","opportunity.report"]}' \
+            "$HUB_URL/infra/agents/register"
+          curl --silent --show-error --fail --max-time 15 \
+            -H "Authorization: Bearer $HUB_TOKEN" -H "Content-Type: application/json" \
+            -d '{}' "$HUB_URL/infra/agents/bounty-bot/heartbeat"
+
       - name: Guardar estado
         uses: stefanzweifel/git-auto-commit-action@v5
         with:
