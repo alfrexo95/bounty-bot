@@ -3,6 +3,11 @@ import re
 import json
 import requests
 from datetime import datetime
+from asgi_forwarded_scope import (
+    SubMountedForwardedHostMiddleware,
+    parse_rfc7239_forwarded,
+    preserve_forwarded_authority_in_scope,
+)
 
 GITHUB_TOKEN = os.environ.get("PAT_TOKEN")
 HEADERS = {"Authorization": f"token {GITHUB_TOKEN}", "Accept": "application/vnd.github.v3+json"}
@@ -43,7 +48,12 @@ def save_seen(seen):
         json.dump(list(seen), f, indent=2)
 
 def crear_notificacion(title, url, monto, plataforma):
-    monto_str = f"${monto}" if monto != "Desconocido" else "Ver enlace"
+    if monto == "Desconocido":
+        monto_str = "Ver enlace"
+    elif str(monto).startswith("$"):
+        monto_str = str(monto)
+    else:
+        monto_str = f"${monto}"
     
     body = f"""🤖 **Bounty con Pago Garantizado (Escrow)**
 
